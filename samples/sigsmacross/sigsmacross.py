@@ -28,7 +28,8 @@ import backtrader as bt
 
 
 class SmaCross(bt.SignalStrategy):
-    params = dict(sma1=10, sma2=20)
+    params = dict(sma1=50, sma2=200)
+    total_profit = 0
 
     def notify_order(self, order):
         if not order.alive():
@@ -42,12 +43,52 @@ class SmaCross(bt.SignalStrategy):
     def notify_trade(self, trade):
         if trade.isclosed:
             print('profit {}'.format(trade.pnlcomm))
+            self.total_profit += trade.pnlcomm
+            print('total profit {}'.format(self.total_profit))
+
+    def next(self):
+        if self.crossover > 0:
+            if not self.position:
+                self.buy(size=10)
+        else:
+            if self.sma1[0] > self.sma2[0]:  # Check if fast SMA is greater than slow SMA
+                # Check for local maxima and downtrend condition
+                if self.local_maxima is None or self.sma1[0] > self.local_maxima:
+                    self.local_maxima = self.sma1[0]
+                    self.flag = False
+
+                else:
+                    # 预判会死叉,提前close
+                    if self.diff <= 2.5 and self.diff > 0 and not self.flag:
+                        # print(">>> date: {}".format(bt.num2date(self.data.datetime[0])), self.diff[0])
+                        self.flag = True
+                        self.close()
+
+                    # 逃顶策略
+                    if self.diff >= 6.0:
+                        self.close()
+            # else:
+            #     # 止损
+            #     if self.sma1[0] - self.sma2[0] > 2 and self.position:
+            #         print(">>> 触发止损!!!")
+            #         # self.close()
+
+    # def next(self):  # simple golden/death cross  ***
+    #     if self.crossover > 0:  # Golden Cross
+    #         if not self.position:
+    #             self.buy(size=10)
+    #     elif self.crossover < 0:  # Dead Cross
+    #         if self.position:
+    #             self.close()
 
     def __init__(self):
-        sma1 = bt.ind.SMA(period=self.params.sma1)
-        sma2 = bt.ind.SMA(period=self.params.sma2)
-        crossover = bt.ind.CrossOver(sma1, sma2)
-        self.signal_add(bt.SIGNAL_LONG, crossover)
+        self.sma1 = bt.ind.SMA(period=self.params.sma1)
+        self.sma2 = bt.ind.SMA(period=self.params.sma2)
+        self.crossover = bt.ind.CrossOver(self.sma1, self.sma2)
+        self.diff = self.sma1 - self.sma2
+        # self.signal_add(bt.SIGNAL_LONG, self.diff)  #
+        self.local_maxima = None
+        self.flag = None
 
 
 def runstrat(pargs=None):
@@ -68,28 +109,32 @@ def runstrat(pargs=None):
     cerebro.run()
     if args.plot:
         cerebro.plot(**(eval('dict(' + args.plot + ')')))
+    cerebro.plot()
 
 
 def parse_args(pargs=None):
-
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description='sigsmacross')
 
-    parser.add_argument('--data', required=False, default='YHOO',
+    parser.add_argument('--data', required=False,
+                        default='../../datas/yhoo-1996-2015.txt',
+                        # default='../../datas/nvda-1999-2014.txt',
+                        # default='../../datas/orcl-1995-2014.txt',
                         help='Yahoo Ticker')
 
-    parser.add_argument('--fromdate', required=False, default='2011-01-01',
-                        help='Ending date in YYYY-MM-DD format')
+    # for testing purpose, nvda-1999-2014
+    # parser.add_argument('--fromdate', required=False, default='2005-10-31', help='Ending date in YYYY-MM-DD format')
+    # parser.add_argument('--todate', required=False, default='2007-06-05', help='Ending date in YYYY-MM-DD format')
 
-    parser.add_argument('--todate', required=False, default='2012-12-31',
-                        help='Ending date in YYYY-MM-DD format')
+    parser.add_argument('--fromdate', required=False, default='1996-10-31', help='Ending date in YYYY-MM-DD format')
+    parser.add_argument('--todate', required=False, default='2015-06-05', help='Ending date in YYYY-MM-DD format')
 
     parser.add_argument('--cash', required=False, action='store', type=float,
                         default=10000, help=('Starting cash'))
 
     parser.add_argument('--stake', required=False, action='store', type=int,
-                        default=1, help=('Stake to apply'))
+                        default=10, help=('Stake to apply'))
 
     parser.add_argument('--strat', required=False, action='store', default='',
                         help=('Arguments for the strategy'))
